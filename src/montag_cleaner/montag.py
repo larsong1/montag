@@ -101,6 +101,22 @@ def RunMontag():
 
     eprint(f'Processing "{args.input}" of type "{"".join(bookMagic)}"')
 
+    # Ensure output extension matches input format (EPUB stays .epub, MOBI stays .mobi)
+    mimeLower = str(bookMagic).lower()
+    if 'epub' in mimeLower:
+        src_ext = '.epub'
+    elif ('mobi' in mimeLower) or ('mobipocket' in mimeLower):
+        src_ext = '.mobi'
+    else:
+        # fallback to input file extension if MIME is unknown
+        src_ext = os.path.splitext(args.input)[1].lower()
+
+    out_root, out_ext = os.path.splitext(args.output)
+    if src_ext and (out_ext.lower() != src_ext):
+        desired_output = out_root + src_ext
+        eprint(f'Adjusting output to match input format: "{args.output}" -> "{desired_output}"')
+        args.output = desired_output
+
     with tempfile.TemporaryDirectory() as tmpDirName:
         metadataFileSpec = os.path.join(tmpDirName, 'metadata.opf')
 
