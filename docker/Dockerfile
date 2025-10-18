@@ -1,4 +1,4 @@
-FROM python:3-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 LABEL maintainer="mero.mero.guero@gmail.com"
 LABEL org.opencontainers.image.authors='mero.mero.guero@gmail.com'
@@ -7,10 +7,10 @@ LABEL org.opencontainers.image.source='https://github.com/mmguero/montag'
 LABEL org.opencontainers.image.title='mmguero/montag'
 LABEL org.opencontainers.image.description='Containerized E-Book Profanity Scrubber'
 
-ENV DEBIAN_FRONTEND noninteractive
-ENV TERM xterm
-ENV PYTHONUNBUFFERED 1
-ENV PIP_ROOT_USER_ACTION ignore
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm
+ENV PYTHONUNBUFFERED=1
+ENV PIP_ROOT_USER_ACTION=ignore
 
 ADD . /usr/local/src/montag-cleaner
 
@@ -18,8 +18,12 @@ RUN apt-get update -q && \
     apt-get -y install -qq --no-install-recommends \
       ca-certificates \
       curl \
+      fontconfig \
       imagemagick \
+      libgdiplus \
+      libicu72 \
       libegl1 \
+      libssl3 \
       libmagic1 \
       libopengl0 \
       libxcb-cursor0 \

@@ -70,6 +70,8 @@ required arguments:
                         Profanity list text file (default: swears.txt)
   -e <STR>, --encoding <STR>
                         Text encoding (default: utf-8)
+  -f <STR>, --output-format <STR>
+                        Output format: epub or mobi (default: inferred from --output extension)
 ```
 
 So, using Andy Weir's "The Martian" as an example:
@@ -99,7 +101,15 @@ Upon opening the book, you will find the text reads something like this:
 > 
 > ...
 
-Alternately, if you are using the Docker method described above, use [`montag-docker.sh`](./docker/montag-docker.sh) rather than [`montag.py`](./src/montag_cleaner/montag.py) directly.
+Alternately, if you are using the Docker method described above, use [`montag-docker.sh`](./docker/montag-docker.sh) rather than [`montag.py`](./src/montag_cleaner/montag.py) directly. You can specify the final output format:
+
+```
+# EPUB output
+docker run --rm -v "/path/to/ebooks:/data" ghcr.io/mmguero/montag:latest -i /data/input.epub -o /data/output.epub -f epub
+
+# MOBI output
+docker run --rm -v "/path/to/ebooks:/data" ghcr.io/mmguero/montag:latest -i /data/input.epub -o /data/output.mobi -f mobi
+```
 
 ## Known Limitations
 

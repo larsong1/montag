@@ -8,6 +8,13 @@ import subprocess
 import re
 import tempfile
 
+try:
+    # Aspose.Words for Python via .NET (used for EPUB <-> MOBI conversions)
+    import aspose.words as aw  # type: ignore
+    _ASPOSE_AVAILABLE = True
+except Exception:  # pragma: no cover - optional dependency
+    _ASPOSE_AVAILABLE = False
+
 import magic
 import ebooklib
 
@@ -69,6 +76,16 @@ def RunMontag():
         '-o', '--output', required=True, dest='output', metavar='<STR>', type=str, default='', help='Output file'
     )
     requiredNamed.add_argument(
+        '-f',
+        '--output-format',
+        dest='outfmt',
+        metavar='<STR>',
+        type=str,
+        choices=['epub', 'mobi'],
+        default=None,
+        help='Output format: epub or mobi (default: inferred from --output extension)',
+    )
+    requiredNamed.add_argument(
         '-w',
         '--word-list',
         dest='swears',
@@ -93,6 +110,27 @@ def RunMontag():
         parser.print_help()
         exit(2)
 
+    # infer/validate output format and normalize output filename extension
+    out_ext = os.path.splitext(args.output)[1].lower().lstrip('.')
+    if args.outfmt is None:
+        if out_ext in ('epub', 'mobi'):
+            args.outfmt = out_ext
+        else:
+            # default to epub if not specified and extension unknown
+            args.outfmt = 'epub'
+            # if user passed a path without extension, append one
+            if out_ext == '':
+                args.output = args.output + '.epub'
+    else:
+        # ensure output filename matches requested format
+        if out_ext not in ('epub', 'mobi'):
+            # add extension
+            args.output = args.output + f'.{args.outfmt}'
+        elif out_ext != args.outfmt:
+            # replace extension
+            base = os.path.splitext(args.output)[0]
+            args.output = base + f'.{args.outfmt}'
+
     # initialize the set of profanity
     swears = set(map(lambda x: x.lower(), [line.strip() for line in open(args.swears, 'r', encoding=args.encoding)]))
 
@@ -114,20 +152,29 @@ def RunMontag():
                 metadataExitCode, f"ebook-meta {args.input} --to-opf={metadataFileSpec}"
             )
 
-        # convert the book from whatever format it is into epub for conversion
+        # convert the book from whatever format it is into EPUB for processing
+        def _convert_any_to_epub(input_path: str, output_epub_path: str) -> None:
+            """Convert any supported input (MOBI/EPUB/etc.) to EPUB using Aspose if available; otherwise fallback to Calibre."""
+            nonlocal devnull
+            if _ASPOSE_AVAILABLE:
+                eprint("Converting to EPUB with Aspose.Words...")
+                doc = aw.Document(input_path)
+                doc.save(output_epub_path, aw.SaveFormat.EPUB)
+            else:
+                eprint("Converting to EPUB with Calibre (Aspose not available)...")
+                exit_code = subprocess.call(["ebook-convert", input_path, output_epub_path], stdout=devnull, stderr=devnull)
+                if exit_code != 0:
+                    raise subprocess.CalledProcessError(exit_code, f"ebook-convert {input_path} {output_epub_path}")
+
+        # Decide if we need conversion to EPUB
         if "epub" in bookMagic.lower():
-            epubFileSpec = args.input
             wasEpub = True
-            toEpubExitCode = 0
+            # Keep original EPUB for processing; Aspose round-trip happens after processing
+            epubFileSpec = args.input
         else:
             wasEpub = False
             epubFileSpec = os.path.join(tmpDirName, 'ebook.epub')
-            eprint("Converting to EPUB...")
-            toEpubExitCode = subprocess.call(
-                ["ebook-convert", args.input, epubFileSpec], stdout=devnull, stderr=devnull
-            )
-            if toEpubExitCode != 0:
-                raise subprocess.CalledProcessError(toEpubExitCode, f"ebook-convert {args.input} {epubFileSpec}")
+            _convert_any_to_epub(args.input, epubFileSpec)
 
         # todo: somehow links/TOCs tend to get messed up
 
@@ -157,19 +204,56 @@ def RunMontag():
         book.add_item(epub.EpubNcx())
         book.add_item(epub.EpubNav())
 
-        # write epub (either final or intermediate)
+        # write EPUB (either final or intermediate)
         eprint("Generating output...")
-        if args.output.lower().endswith('.epub'):
-            epub.write_epub(args.output, newBook)
+        cleanEpubFileSpec = os.path.join(tmpDirName, 'ebook_cleaned.epub')
+        epub.write_epub(cleanEpubFileSpec, newBook)
+        if args.outfmt == 'epub':
+            # Convert cleaned EPUB back to EPUB using Aspose when available
+            if _ASPOSE_AVAILABLE and wasEpub:
+                # Do a round-trip via MOBI then back to EPUB, as requested
+                eprint("Finalizing EPUB via MOBI round-trip with Aspose.Words...")
+                tmpMobi2 = os.path.join(tmpDirName, 'ebook_cleaned.mobi')
+                doc_rt_in = aw.Document(cleanEpubFileSpec)
+                doc_rt_in.save(tmpMobi2, aw.SaveFormat.MOBI)
+                doc_rt_mid = aw.Document(tmpMobi2)
+                doc_rt_mid.save(args.output, aw.SaveFormat.EPUB)
+            elif _ASPOSE_AVAILABLE:
+                eprint("Finalizing EPUB with Aspose.Words...")
+                doc_final = aw.Document(cleanEpubFileSpec)
+                doc_final.save(args.output, aw.SaveFormat.EPUB)
+            else:
+                # Fallback: move/write the cleaned EPUB directly
+                eprint("Finalizing EPUB without Aspose (direct write)...")
+                # Write directly to requested output path
+                # Re-write to ensure path; alternatively, copy file content
+                if cleanEpubFileSpec != args.output:
+                    # Use Calibre to ensure minimal normalization if available, else copy
+                    try:
+                        fromEpubExitCode = subprocess.call(
+                            ["ebook-convert", cleanEpubFileSpec, args.output], stdout=devnull, stderr=devnull
+                        )
+                        if fromEpubExitCode != 0:
+                            raise subprocess.CalledProcessError(fromEpubExitCode, f"ebook-convert {cleanEpubFileSpec} {args.output}")
+                    except FileNotFoundError:
+                        # As a last resort, copy bytes
+                        with open(cleanEpubFileSpec, 'rb') as src_f, open(args.output, 'wb') as dst_f:
+                            dst_f.write(src_f.read())
         else:
-            cleanEpubFileSpec = os.path.join(tmpDirName, 'ebook_cleaned.epub')
-            epub.write_epub(cleanEpubFileSpec, newBook)
-            eprint("Converting...")
-            fromEpubExitCode = subprocess.call(
-                ["ebook-convert", cleanEpubFileSpec, args.output], stdout=devnull, stderr=devnull
-            )
-            if fromEpubExitCode != 0:
-                raise subprocess.CalledProcessError(toEpubExitCode, f"ebook-convert {cleanEpubFileSpec} {args.output}")
+            eprint("Converting cleaned EPUB to desired format...")
+            # Convert cleaned EPUB to the requested output format
+            if args.outfmt == 'mobi':
+                if _ASPOSE_AVAILABLE:
+                    doc_out = aw.Document(cleanEpubFileSpec)
+                    doc_out.save(args.output, aw.SaveFormat.MOBI)
+                else:
+                    fromEpubExitCode = subprocess.call(
+                        ["ebook-convert", cleanEpubFileSpec, args.output], stdout=devnull, stderr=devnull
+                    )
+                    if fromEpubExitCode != 0:
+                        raise subprocess.CalledProcessError(fromEpubExitCode, f"ebook-convert {cleanEpubFileSpec} {args.output}")
+            else:
+                raise ValueError(f"Unsupported output format: {args.outfmt}")
 
         # restore metadata
         eprint("Restoring metadata...")
