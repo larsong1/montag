@@ -52,6 +52,27 @@ The Python dependencies *should* be installed automatically if you are using `pi
 
 Alternately, a [Dockerfile](./docker/Dockerfile) is provided to allow you to run Montag in Docker. You can build the `oci.guero.org/montag:latest` Docker image with [`build_docker.sh`](./docker/build_docker.sh), then use [`montag-docker.sh`](./docker/montag-docker.sh) to process your e-book files.
 
+On Windows/PowerShell, you can batch-process an entire folder by using the provided script [`docker/montag-batch.ps1`](./docker/montag-batch.ps1). It will:
+
+* read every file from `_explicit_files/`
+* run Montag in Docker once per file
+* write the cleaned file to `_cleaned_files/`
+* delete the original from `_explicit_files/`
+
+Basic usage (from the repo root in PowerShell):
+
+```
+./docker/montag-batch.ps1
+```
+
+Optional parameters:
+
+```
+./docker/montag-batch.ps1 -Encoding utf-8 -SwearsFile ./src/montag_cleaner/swears.txt -Image oci.guero.org/montag:latest -Engine docker
+```
+
+Environment variables `MONTAG_IMAGE` and `CONTAINER_ENGINE` can also be used to override the image and engine.
+
 ## Usage
 
 Montag is easy to use. Specify the input and output e-book filenames, and, optionally, the file containing the words to be censored (one per line) and the text encoding.
